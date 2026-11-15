@@ -1,115 +1,170 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Data.SqlClient;
-
 
 namespace TEST
 {
+    /// <summary>Gestion des médicaments : formulaire à gauche, liste avec recherche à droite.</summary>
     public partial class medicament : UserControl
     {
+        /// <summary>Nom du médicament en cours de modification, ou null en mode « ajout ».</summary>
+        private string nomSelectionne;
+
         public medicament()
         {
             InitializeComponent();
         }
-        SqlConnection con = new SqlConnection("Data Source=.;Initial Catalog=gestion_hopital;Integrated Security=True");
-        public void refr()
-        {
-            con.Close();
-            con.Open();
-            SqlDataAdapter sqlda = new SqlDataAdapter("select nom_medoc from MEDICAMENT ", con);
-            DataTable dtbl = new DataTable();
-            sqlda.Fill(dtbl);
-            gunaDataGridView1.DataSource = dtbl;
-            con.Close();
-        }
+
         private void medicament_Load(object sender, EventArgs e)
         {
-            refr();
-        }
-
-        private void gunaTextBox1_TextChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void gunaButton2_Click(object sender, EventArgs e)
-        {
-
-        }
-        int selectedRow;
-        private void gunaDataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
-        {
-            selectedRow = e.RowIndex;
-            if (selectedRow >= 0)
+            if (!Db.EnModeConception)
             {
-                DataGridViewRow row = gunaDataGridView1.Rows[selectedRow];
-                gunaTextBox1.Text = row.Cells[0].Value.ToString();
+                ModeAjout();
+                refr();
             }
-            
         }
 
-        private void gunaButton1_Click(object sender, EventArgs e)
+        public void refr()
         {
-            con.Open();
-
-            int nbligne = 0;
-            if (gunaTextBox1.Text.Length != 0 )
+            Db.TryRun(delegate
             {
+                grid.DataSource = Db.Query("SELECT nom_medoc AS Nom FROM MEDICAMENT ORDER BY nom_medoc");
+            });
+            AppliquerFiltre();
+        }
 
-                SqlCommand cmd1 = new SqlCommand("SELECT COUNT(nom_medoc) FROM MEDICAMENT WHERE nom_medoc = '" + gunaTextBox1.Text + "'", con);
-                cmd1.ExecuteNonQuery();
+        private void AppliquerFiltre()
+        {
+            Ui.Filtrer(grid.DataSource, txtRecherche.Text, "Nom");
+            lblCompte.Text = Ui.Pluriel(grid.Rows.Count, "médicament", "médicaments");
+            grid.ClearSelection();
+        }
 
-                nbligne = Convert.ToInt16(cmd1.ExecuteScalar());
+        private void txtRecherche_TextChanged(object sender, EventArgs e)
+        {
+            AppliquerFiltre();
+        }
 
-                if (nbligne == 0)
+        private void ModeAjout()
+        {
+            nomSelectionne = null;
+            txtNom.Clear();
+            lblForm.Text = "Nouveau médicament";
+            lblFormSub.Text = "Saisissez le nom du médicament.";
+            btnAjouter.Visible = true;
+            btnModifier.Visible = false;
+            btnSupprimer.Visible = false;
+            grid.ClearSelection();
+        }
+
+        private void ModeEdition(DataGridViewRow ligne)
+        {
+            nomSelectionne = Convert.ToString(ligne.Cells["Nom"].Value);
+            txtNom.Text = nomSelectionne;
+            lblForm.Text = "Modifier le médicament";
+            lblFormSub.Text = "Modifiez le nom puis enregistrez.";
+            btnAjouter.Visible = false;
+            btnModifier.Visible = true;
+            btnSupprimer.Visible = true;
+        }
+
+        private bool Valider()
+        {
+            txtNom.Erreur = txtNom.Text.Trim().Length == 0;
+            if (txtNom.Erreur)
+            {
+                lblStatut.Erreur("Veuillez saisir le nom du médicament.");
+                return false;
+            }
+            return true;
+        }
+
+        private bool Existe(string nom)
+        {
+            return Db.Count("SELECT COUNT(*) FROM MEDICAMENT WHERE nom_medoc = @nom", Db.P("@nom", nom)) > 0;
+        }
+
+        private void btnAjouter_Click(object sender, EventArgs e)
+        {
+            if (!Valider())
+            {
+                return;
+            }
+
+            string nom = txtNom.Text.Trim();
+            Db.TryRun(delegate
+            {
+                if (Existe(nom))
                 {
-                    SqlCommand cmd = new SqlCommand("INSERT INTO MEDICAMENT (nom_medoc) VALUES ('" + gunaTextBox1.Text + "')", con);
-                    int i = cmd.ExecuteNonQuery();
-                    MessageBox.Show("inserer avec succes");
-                    gunaTextBox1.Clear();
-                    
-
-
+                    txtNom.Erreur = true;
+                    lblStatut.Erreur("Ce médicament existe déjà.");
+                    return;
                 }
-                else
-                {
-                    MessageBox.Show("medicament existant");
-                    gunaTextBox1.Clear();
-                    
-                };
 
+                Db.Execute("INSERT INTO MEDICAMENT (nom_medoc) VALUES (@nom)", Db.P("@nom", nom));
+                lblStatut.Succes("Médicament « " + nom + " » ajouté.");
+                ModeAjout();
                 refr();
-                con.Close();
-            }
-            else
-            {
-                MessageBox.Show("textbox vide");
-            }
+            });
         }
 
-        private void gunaButton2_Click_1(object sender, EventArgs e)
+        private void btnModifier_Click(object sender, EventArgs e)
         {
-            if (gunaTextBox1.Text.Length != 0)
+            if (nomSelectionne == null || !Valider())
             {
-                con.Open();
-                SqlCommand cmd = new SqlCommand("DELETE FROM MEDICAMENT where nom_medoc = '" + gunaTextBox1.Text + "'", con);
-                int i = cmd.ExecuteNonQuery();
-                MessageBox.Show("suppression avec succes");
-                refr();
-                gunaTextBox1.Clear();
-                con.Close();
-
+                return;
             }
-            else
+
+            string ancien = nomSelectionne;
+            string nouveau = txtNom.Text.Trim();
+            Db.TryRun(delegate
             {
-                MessageBox.Show("textbox vide");
+                if (nouveau != ancien && Existe(nouveau))
+                {
+                    txtNom.Erreur = true;
+                    lblStatut.Erreur("Ce médicament existe déjà.");
+                    return;
+                }
+
+                Db.Execute("UPDATE MEDICAMENT SET nom_medoc = @nouveau WHERE nom_medoc = @ancien",
+                    Db.P("@nouveau", nouveau), Db.P("@ancien", ancien));
+                lblStatut.Succes("Modifications enregistrées.");
+                ModeAjout();
+                refr();
+            });
+        }
+
+        private void btnSupprimer_Click(object sender, EventArgs e)
+        {
+            if (nomSelectionne == null)
+            {
+                return;
+            }
+            string nom = nomSelectionne;
+            if (!Db.Confirmer("Supprimer le médicament « " + nom + " » ?"))
+            {
+                return;
+            }
+
+            Db.TryRun(delegate
+            {
+                Db.Execute("DELETE FROM MEDICAMENT WHERE nom_medoc = @nom", Db.P("@nom", nom));
+                lblStatut.Succes("Médicament « " + nom + " » supprimé.");
+                ModeAjout();
+                refr();
+            });
+        }
+
+        private void btnNouveau_Click(object sender, EventArgs e)
+        {
+            ModeAjout();
+            txtNom.Focus();
+        }
+
+        private void grid_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0)
+            {
+                ModeEdition(grid.Rows[e.RowIndex]);
             }
         }
     }

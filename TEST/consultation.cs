@@ -1,191 +1,386 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Data.SqlClient;
+using TEST.Controls;
 
 namespace TEST
 {
+    /// <summary>
+    /// Gestion des consultations : formulaire à gauche, calendrier mensuel (ou liste) à droite.
+    /// Le patient et le médecin se choisissent dans des listes par leur nom.
+    /// </summary>
     public partial class consultation : UserControl
     {
+        /// <summary>Id de la consultation en cours de modification, ou null en mode « ajout ».</summary>
+        private int? idSelectionne;
+
+        /// <summary>Vue affichée à droite : calendrier (par défaut) ou liste.</summary>
+        private bool vueCalendrier = true;
+
         public consultation()
         {
             InitializeComponent();
         }
-        SqlConnection con = new SqlConnection("Data Source=.;Initial Catalog=gestion_hopital;Integrated Security=True");
-        public void refr()
-        {
-            con.Open();
-            SqlDataAdapter sqlda = new SqlDataAdapter("select id_MEDECIN, nom_med from MEDECIN ", con);
-            DataTable dtbl = new DataTable();
-            sqlda.Fill(dtbl);
-            gunaDataGridView1.DataSource = dtbl;
-        }
-        public void refr1()
-        {
-            con.Close();
-            con.Open();
-            SqlDataAdapter sqlda = new SqlDataAdapter("select id_PATIENT, nom_pat from PATIENT", con);
-            DataTable dtbl = new DataTable();
-            sqlda.Fill(dtbl);
-            gunaDataGridView2.DataSource = dtbl;
-            con.Close();
-        }
-        public void refr2()
-        {
-            con.Close();
-            con.Open();
-            SqlDataAdapter sqlda = new SqlDataAdapter("select id_CONSULTATION, prix_cons, date_cons, id_PATIENT, id_MEDECIN nom_pat from CONSULTATION", con);
-            DataTable dtbl = new DataTable();
-            sqlda.Fill(dtbl);
-            gunaDataGridView3.DataSource = dtbl;
-            con.Close();
-        }
-        private void gunaTextBox3_TextChanged(object sender, EventArgs e)
-        {
-           
-        }
 
         private void consultation_Load(object sender, EventArgs e)
         {
-            refr();
-            refr1();
-            refr2();
-            gunaTextBox3.Enabled = false;
-            gunaTextBox2.Enabled = false;
-            gunaTextBox4.Visible= false;
-
-        }
-
-        private void gunaTextBox2_TextChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void gunaTextBox1_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
+            if (!Db.EnModeConception)
             {
-                e.Handled = true;
+                AfficherVue(true);
+                refr();
+                ModeAjout();
             }
-
-          
-          
         }
 
-        private void dateTimePicker1_ValueChanged(object sender, EventArgs e)
+        /// <summary>Recharge les listes de patients et de médecins, puis les consultations.</summary>
+        public void refr()
         {
+            object patient = cboPatient.SelectedValue;
+            object medecin = cboMedecin.SelectedValue;
 
-        }
-
-        private void gunaButton1_Click(object sender, EventArgs e)
-        {
-            if (dateTimePicker1.Value < DateTime.Now)
+            Db.TryRun(delegate
             {
-                MessageBox.Show("date impossible");
-                gunaTextBox1.Clear();
-                gunaTextBox2.Clear();
-                gunaTextBox3.Clear();
+                cboPatient.DisplayMember = "nom";
+                cboPatient.ValueMember = "id";
+                cboPatient.DataSource = Db.Query("SELECT id_PATIENT AS id, nom_pat AS nom FROM PATIENT ORDER BY nom_pat");
+
+                cboMedecin.DisplayMember = "nom";
+                cboMedecin.ValueMember = "id";
+                cboMedecin.DataSource = Db.Query("SELECT id_MEDECIN AS id, nom_med AS nom FROM MEDECIN ORDER BY nom_med");
+
+                ChargerConsultations();
+            });
+
+            cboPatient.SelectedValue = patient;
+            cboMedecin.SelectedValue = medecin;
+        }
+
+        private DataTable Consultations
+        {
+            get { return grid.DataSource as DataTable; }
+        }
+
+        private void ChargerConsultations()
+        {
+            grid.DataSource = Db.Query(
+                "SELECT c.id_CONSULTATION AS Id, c.date_cons AS [Date], p.nom_pat AS Patient, " +
+                "       m.nom_med AS [Médecin], c.prix_cons AS Prix, c.id_PATIENT, c.id_MEDECIN " +
+                "FROM CONSULTATION c " +
+                "JOIN PATIENT p ON p.id_PATIENT = c.id_PATIENT " +
+                "JOIN MEDECIN m ON m.id_MEDECIN = c.id_MEDECIN " +
+                "ORDER BY c.date_cons DESC");
+            grid.Columns["Id"].Visible = false;
+            grid.Columns["id_PATIENT"].Visible = false;
+            grid.Columns["id_MEDECIN"].Visible = false;
+            grid.Columns["Date"].DefaultCellStyle.Format = "ddd d MMM yyyy  ·  HH:mm";
+            grid.Columns["Prix"].DefaultCellStyle.Format = "N2";
+            grid.Columns["Date"].FillWeight = 190;
+            grid.Columns["Prix"].FillWeight = 70;
+            AppliquerFiltre();
+        }
+
+        /// <summary>Applique la recherche à la liste et au calendrier, et met à jour le compteur.</summary>
+        private void AppliquerFiltre()
+        {
+            Ui.Filtrer(grid.DataSource, txtRecherche.Text, "Patient", "Médecin");
+            grid.ClearSelection();
+
+            List<CalendrierEvenement> evenements = new List<CalendrierEvenement>();
+            DataTable table = Consultations;
+            if (table != null)
+            {
+                foreach (DataRowView v in table.DefaultView)
+                {
+                    evenements.Add(new CalendrierEvenement
+                    {
+                        Id = Convert.ToInt32(v["Id"]),
+                        Debut = Convert.ToDateTime(v["Date"]),
+                        Titre = Convert.ToString(v["Patient"]),
+                        Detail = "Dr " + v["Médecin"] + "  ·  " + Convert.ToDecimal(v["Prix"]).ToString("N2"),
+                        Groupe = Convert.ToInt32(v["id_MEDECIN"])
+                    });
+                }
             }
-            else if(gunaTextBox1.Text.Length == 0 && gunaTextBox2.Text.Length == 0 && gunaTextBox3.Text.Length == 0)
+            calendrier.DefinirEvenements(evenements);
+            MettreAJourCompteur();
+        }
+
+        private void MettreAJourCompteur()
+        {
+            if (vueCalendrier)
             {
-                MessageBox.Show("les textbox sont vide");
-                gunaTextBox1.Clear();
-                gunaTextBox2.Clear();
-                gunaTextBox3.Clear();
+                lblCompte.Text = Ui.Pluriel(calendrier.NombreDansLeMois(), "consultation", "consultations") + " ce mois-ci";
             }
             else
             {
-                con.Open();
-                
-                SqlCommand cmd = new SqlCommand(" INSERT INTO CONSULTATION (prix_cons,date_cons,id_PATIENT,id_MEDECIN) VALUES('" + gunaTextBox1.Text + "','" + dateTimePicker1.Value.ToString("MM/dd/yyyy HH:MM:ss") + "','" + gunaTextBox3.Text + "','" + gunaTextBox2.Text + "')", con);
-                int i = cmd.ExecuteNonQuery();
-                MessageBox.Show("Inssertion avec succes");
-                gunaTextBox1.Clear();
-                gunaTextBox2.Clear();
-                gunaTextBox3.Clear();
-                dateTimePicker1.Value = DateTime.Now;
-                con.Close();
-
-
-            }
-            refr2();
-
-        }
-        int selectedRow;
-        private void gunaDataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
-        {
-            selectedRow = e.RowIndex;
-            if (selectedRow >= 0) { 
-            DataGridViewRow row = gunaDataGridView1.Rows[selectedRow];
-            gunaTextBox2.Text = row.Cells[0].Value.ToString();
+                lblCompte.Text = Ui.Pluriel(grid.Rows.Count, "consultation", "consultations");
             }
         }
-        
-        int selectedRow1;
-        private void gunaDataGridView2_CellClick(object sender, DataGridViewCellEventArgs e)
+
+        private void txtRecherche_TextChanged(object sender, EventArgs e)
         {
-            selectedRow1 = e.RowIndex;
-            if (selectedRow1 >= 0)
+            AppliquerFiltre();
+        }
+
+        private void txtPrix_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            Db.ChiffresSeulement(e);
+        }
+
+        // --- Vues calendrier / liste ---
+
+        private void AfficherVue(bool calendrierVisible)
+        {
+            vueCalendrier = calendrierVisible;
+            calendrier.Visible = calendrierVisible;
+            grid.Visible = !calendrierVisible;
+            btnVueCalendrier.Variant = calendrierVisible ? ButtonVariant.Primary : ButtonVariant.Secondary;
+            btnVueListe.Variant = calendrierVisible ? ButtonVariant.Secondary : ButtonVariant.Primary;
+            lblListe.Text = calendrierVisible ? "Calendrier des consultations" : "Liste des consultations";
+            MettreAJourCompteur();
+        }
+
+        private void btnVueCalendrier_Click(object sender, EventArgs e)
+        {
+            AfficherVue(true);
+        }
+
+        private void btnVueListe_Click(object sender, EventArgs e)
+        {
+            AfficherVue(false);
+        }
+
+        private void calendrier_EvenementClique(object sender, CalendrierEventArgs e)
+        {
+            DataTable table = Consultations;
+            if (table == null || !e.Id.HasValue)
             {
-                DataGridViewRow row = gunaDataGridView2.Rows[selectedRow1];
-                gunaTextBox3.Text = row.Cells[0].Value.ToString();
+                return;
             }
-        }
-        int selectedRow2;
-        private void gunaDataGridView3_CellClick(object sender, DataGridViewCellEventArgs e)
-        {
-            gunaButton1.Enabled = false;
-            selectedRow2 = e.RowIndex;
-            if (selectedRow2 >= 0)
+            foreach (DataRow r in table.Rows)
             {
-                DataGridViewRow row = gunaDataGridView3.Rows[selectedRow2];
-                gunaTextBox4.Text = row.Cells[0].Value.ToString();
-                gunaTextBox1.Text = row.Cells[1].Value.ToString();
-                gunaTextBox2.Text = row.Cells[4].Value.ToString();
-                gunaTextBox3.Text = row.Cells[3].Value.ToString();
-                dateTimePicker1.Value = Convert.ToDateTime(row.Cells[2].Value);
+                if (Convert.ToInt32(r["Id"]) == e.Id.Value)
+                {
+                    ModeEdition(r);
+                    return;
+                }
             }
         }
 
-        private void gunaButton3_Click(object sender, EventArgs e)
+        /// <summary>Clic sur un jour : prépare une nouvelle consultation à cette date.</summary>
+        private void calendrier_JourClique(object sender, CalendrierEventArgs e)
         {
-           con.Open();
-            SqlCommand cmd = new SqlCommand(" UPDATE CONSULTATION SET prix_cons = '" + gunaTextBox1.Text + "' , date_cons = '" + dateTimePicker1.Value.ToString("MM/dd/yyyy HH:MM:ss") + "'  WHERE  id_CONSULTATION = '" + gunaTextBox4.Text + "' ", con);
-            int i = cmd.ExecuteNonQuery();
-            MessageBox.Show("modification avec succes");
-            gunaTextBox1.Clear();
-            gunaTextBox2.Clear();
-            gunaTextBox3.Clear();
-            dateTimePicker1.Value = DateTime.Now;
-            gunaButton1.Enabled = true;
-            refr2();
-            con.Close();
+            if (e.Date < DateTime.Today)
+            {
+                lblStatut.Erreur("Impossible de planifier une consultation dans le passé.");
+                return;
+            }
+
+            TimeSpan heure = dtpDate.Value.TimeOfDay;
+            if (idSelectionne != null)
+            {
+                ModeAjout();
+                heure = dtpDate.Value.TimeOfDay;
+            }
+            dtpDate.Value = e.Date.Date + heure;
+            lblFormSub.Text = "Nouvelle consultation le " + e.Date.ToString("dddd d MMMM") + ".";
+            cboPatient.Focus();
         }
 
-        private void gunaButton2_Click(object sender, EventArgs e)
+        /// <summary>Ouvre une consultation existante (appelé depuis le tableau de bord).</summary>
+        public void OuvrirConsultation(int id)
         {
-           con.Open();
-            SqlCommand cmd = new SqlCommand(" DELETE CONSULTATION WHERE id_CONSULTATION = '" + gunaTextBox4.Text + "' ", con);
-            int i = cmd.ExecuteNonQuery();
-            MessageBox.Show("suppression avec succes");
-            gunaTextBox1.Clear();
-            gunaTextBox2.Clear();
-            gunaTextBox3.Clear();
-            dateTimePicker1.Value = DateTime.Now;
-            gunaButton1.Enabled = true;
-
-            refr();
-            refr1();
-            refr2();
-            con.Close();
+            AfficherVue(true);
+            calendrier_EvenementClique(this, new CalendrierEventArgs(id, DateTime.Today));
+            if (idSelectionne.HasValue)
+            {
+                calendrier.Mois = dtpDate.Value;
+            }
         }
 
-       
+        /// <summary>Prépare une nouvelle consultation à une date (appelé depuis le tableau de bord).</summary>
+        public void PreparerNouvelle(DateTime jour)
+        {
+            AfficherVue(true);
+            ModeAjout();
+            calendrier.Mois = jour;
+            calendrier_JourClique(this, new CalendrierEventArgs(null, jour));
+        }
+
+        /// <summary>Prépare une nouvelle consultation pour un patient (appelé depuis son historique).</summary>
+        public void PreparerNouvellePourPatient(int idPatient)
+        {
+            ModeAjout();
+            cboPatient.SelectedValue = idPatient;
+            lblFormSub.Text = "Choisissez le médecin et l'horaire.";
+            cboMedecin.Focus();
+        }
+
+        private void calendrier_MoisChange(object sender, EventArgs e)
+        {
+            MettreAJourCompteur();
+        }
+
+        // --- Modes du formulaire ---
+
+        private void ModeAjout()
+        {
+            idSelectionne = null;
+            calendrier.Selection = null;
+            cboPatient.SelectedIndex = -1;
+            cboMedecin.SelectedIndex = -1;
+            dtpDate.Value = DateTime.Today.AddHours(DateTime.Now.Hour + 1);
+            txtPrix.Clear();
+            lblForm.Text = "Nouvelle consultation";
+            lblFormSub.Text = "Choisissez le patient, le médecin et l'horaire.";
+            btnAjouter.Visible = true;
+            btnModifier.Visible = false;
+            btnSupprimer.Visible = false;
+            grid.ClearSelection();
+        }
+
+        private void ModeEdition(DataRow ligne)
+        {
+            idSelectionne = Convert.ToInt32(ligne["Id"]);
+            calendrier.Selection = idSelectionne;
+            cboPatient.SelectedValue = ligne["id_PATIENT"];
+            cboMedecin.SelectedValue = ligne["id_MEDECIN"];
+            if (ligne["Date"] != DBNull.Value)
+            {
+                dtpDate.Value = Convert.ToDateTime(ligne["Date"]);
+            }
+            txtPrix.Text = Convert.ToDecimal(ligne["Prix"]).ToString("0.##");
+            lblForm.Text = "Modifier la consultation";
+            lblFormSub.Text = "Modifiez les informations puis enregistrez.";
+            btnAjouter.Visible = false;
+            btnModifier.Visible = true;
+            btnSupprimer.Visible = true;
+        }
+
+        /// <summary>Vérifie la saisie ; renvoie false (avec un message) si elle est incomplète.</summary>
+        private bool LireSaisie(out int idPatient, out int idMedecin, out decimal prix)
+        {
+            idPatient = 0;
+            idMedecin = 0;
+            prix = 0;
+
+            if (cboPatient.SelectedValue == null)
+            {
+                lblStatut.Erreur("Choisissez un patient.");
+                return false;
+            }
+            if (cboMedecin.SelectedValue == null)
+            {
+                lblStatut.Erreur("Choisissez un médecin.");
+                return false;
+            }
+            if (!decimal.TryParse(txtPrix.Text.Trim(), out prix))
+            {
+                txtPrix.Erreur = true;
+                lblStatut.Erreur("Saisissez un prix valide.");
+                return false;
+            }
+
+            idPatient = Convert.ToInt32(cboPatient.SelectedValue);
+            idMedecin = Convert.ToInt32(cboMedecin.SelectedValue);
+            return true;
+        }
+
+        // --- Actions ---
+
+        private void btnAjouter_Click(object sender, EventArgs e)
+        {
+            int idPatient, idMedecin;
+            decimal prix;
+            if (!LireSaisie(out idPatient, out idMedecin, out prix))
+            {
+                return;
+            }
+            if (dtpDate.Value.Date < DateTime.Today)
+            {
+                lblStatut.Erreur("La date ne peut pas être dans le passé.");
+                return;
+            }
+
+            DateTime date = dtpDate.Value;
+            Db.TryRun(delegate
+            {
+                Db.Execute(
+                    "INSERT INTO CONSULTATION (prix_cons, date_cons, id_PATIENT, id_MEDECIN) " +
+                    "VALUES (@prix, @date, @patient, @medecin)",
+                    Db.P("@prix", prix), Db.P("@date", date),
+                    Db.P("@patient", idPatient), Db.P("@medecin", idMedecin));
+                lblStatut.Succes("Consultation ajoutée pour le " + date.ToString("dd/MM/yyyy à HH:mm") + ".");
+                ModeAjout();
+                ChargerConsultations();
+                calendrier.Mois = date;
+            });
+        }
+
+        private void btnModifier_Click(object sender, EventArgs e)
+        {
+            int idPatient, idMedecin;
+            decimal prix;
+            if (idSelectionne == null || !LireSaisie(out idPatient, out idMedecin, out prix))
+            {
+                return;
+            }
+
+            int id = idSelectionne.Value;
+            DateTime date = dtpDate.Value;
+            Db.TryRun(delegate
+            {
+                Db.Execute(
+                    "UPDATE CONSULTATION SET prix_cons = @prix, date_cons = @date, " +
+                    "id_PATIENT = @patient, id_MEDECIN = @medecin WHERE id_CONSULTATION = @id",
+                    Db.P("@prix", prix), Db.P("@date", date),
+                    Db.P("@patient", idPatient), Db.P("@medecin", idMedecin), Db.P("@id", id));
+                lblStatut.Succes("Modifications enregistrées.");
+                ModeAjout();
+                ChargerConsultations();
+                calendrier.Mois = date;
+            });
+        }
+
+        private void btnSupprimer_Click(object sender, EventArgs e)
+        {
+            if (idSelectionne == null)
+            {
+                return;
+            }
+            if (!Db.Confirmer("Supprimer cette consultation ?"))
+            {
+                return;
+            }
+
+            int id = idSelectionne.Value;
+            Db.TryRun(delegate
+            {
+                Db.Execute("DELETE FROM CONSULTATION WHERE id_CONSULTATION = @id", Db.P("@id", id));
+                lblStatut.Succes("Consultation supprimée.");
+                ModeAjout();
+                ChargerConsultations();
+            });
+        }
+
+        private void btnNouveau_Click(object sender, EventArgs e)
+        {
+            ModeAjout();
+            cboPatient.Focus();
+        }
+
+        private void grid_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0)
+            {
+                return;
+            }
+            DataRowView vue = grid.Rows[e.RowIndex].DataBoundItem as DataRowView;
+            if (vue != null)
+            {
+                ModeEdition(vue.Row);
+            }
+        }
     }
 }

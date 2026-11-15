@@ -33,11 +33,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Guna.UI">
-      <HintPath>..\..\..\..\..\..\programing\Guna_UI_Framework_Ultimate_v2.0.0.1\Guna_UI_Framework_Ultimate_v2.0.0.1\Guna.UI-Framework-Lib-master\Guna.UI WinForms\.net 4.0\Guna.UI.dll</HintPath>
-    </Reference>
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Management" />
     <Reference Include="System.Windows.Forms.DataVisualization" />
@@ -64,11 +62,26 @@
     <Compile Include="consultation.Designer.cs">
       <DependentUpon>consultation.cs</DependentUpon>
     </Compile>
+    <Compile Include="Controls\FlatControls.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Controls\CalendarView.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Controls\Theme.cs" />
+    <Compile Include="Db.cs" />
+    <Compile Include="Session.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
+    </Compile>
+    <Compile Include="HistoriquePatient.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="HistoriquePatient.Designer.cs">
+      <DependentUpon>HistoriquePatient.cs</DependentUpon>
     </Compile>
     <Compile Include="medecin.cs">
       <SubType>UserControl</SubType>
